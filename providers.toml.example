@@ -1,0 +1,34 @@
+# NetSapiens provider profiles for aa_digit_report.py
+#
+# Location: ~/.config/ns/providers.toml
+#   (or $XDG_CONFIG_HOME/ns/providers.toml if XDG_CONFIG_HOME is set)
+#
+# Setup:
+#   mkdir -p ~/.config/ns
+#   cp providers.toml.example ~/.config/ns/providers.toml
+#   chmod 700 ~/.config/ns
+#   chmod 600 ~/.config/ns/providers.toml   # only matters if you inline tokens below
+#
+# Tokens: prefer `token_file` over inline `token`. A separate token file
+# can be chmod 600'd and rotated without editing this config.
+
+# ----------------------------------------------------------------------
+# Optional: which profile to use when --profile is omitted and $NS_PROFILE
+# is not set. Comment out to require an explicit --profile every time.
+default = "yourprofile"
+
+# ----------------------------------------------------------------------
+# Each [section] is one provider. Required: api_base, domain.
+# Token comes from token_file (recommended) or inline token (less safe).
+
+[acme]
+api_base   = "https://api.acme-voice.com/ns-api/v2"
+domain     = "AcmeCorp"
+token_file = "~/.config/ns/acme-token"
+
+# Inline tokens are supported but discouraged. Only use if this whole file
+# is chmod 600 and you accept that plaintext config tokens are easier to leak.
+# [staging]
+# api_base = "https://api.staging.example.com/ns-api/v2"
+# domain   = "StagingDomain"
+# token    = "nss_staging_inline_for_testing_only_xxxxxxxxxx"
