@@ -400,6 +400,7 @@ def main() -> int:
     rows: list[dict] = []
     seen_cdrs = 0
     aa_hits = 0
+    cross_domain_skipped = 0
 
     profile_label = f" (profile: {profile['_name']})" if profile else ""
     print(f"# api_base={api_base} domain={domain}{profile_label}", file=sys.stderr)
@@ -408,6 +409,14 @@ def main() -> int:
         seen_cdrs += 1
         uri = cdr.get("call-term-pre-routing-uri") or ""
         if "Prompt_" not in uri:
+            continue
+        # Skip calls that terminated in a different domain (e.g. our user
+        # dialed out and hit somebody else's AA). The prompt ID space is
+        # per-domain, so looking it up locally would 404 or — worse — time
+        # out on the API.
+        term_domain = cdr.get("call-term-domain")
+        if term_domain and term_domain != domain:
+            cross_domain_skipped += 1
             continue
         if args.inbound_only:
             direction = str(cdr.get("call-direction") or "").lower()
@@ -438,7 +447,8 @@ def main() -> int:
         aa_hits += 1
 
     print(f"# scanned {seen_cdrs} CDRs, matched {aa_hits} AA digit press(es), "
-          f"{len(aa_cache)} AA config lookup(s)", file=sys.stderr)
+          f"{len(aa_cache)} AA config lookup(s), "
+          f"{cross_domain_skipped} cross-domain skip(s)", file=sys.stderr)
 
     if args.format == "csv":
         emit_csv(rows)
