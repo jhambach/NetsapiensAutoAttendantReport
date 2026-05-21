@@ -42,6 +42,8 @@ from datetime import date
 from typing import Iterator, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # TOML parser: stdlib on 3.11+, 'tomli' backport on 3.10 and below
 try:
@@ -209,17 +211,24 @@ def fetch_aa(
     session: requests.Session, api_base: str, domain: str,
     aa_user: str, prompt_full: str, cache: dict,
 ) -> Optional[dict]:
-    """Fetch AA config, cached per (user, prompt). Returns None on 404."""
+    """Fetch AA config, cached per (user, prompt). Returns None on 404 or
+    any failure. Failures are warned once and cached so repeated CDRs
+    referencing a broken or unreachable prompt don't re-hammer the API."""
     key = (aa_user, prompt_full)
     if key in cache:
         return cache[key]
     url = f"{api_base}/domains/{domain}/users/{aa_user}/autoattendants/{prompt_full}"
-    r = session.get(url, timeout=30)
-    if r.status_code == 404:
+    try:
+        r = session.get(url, timeout=30)
+        if r.status_code == 404:
+            cache[key] = None
+            return None
+        r.raise_for_status()
+        aa = r.json()
+    except requests.RequestException as e:
+        print(f"warn: AA lookup failed for {prompt_full}: {e}", file=sys.stderr)
         cache[key] = None
         return None
-    r.raise_for_status()
-    aa = r.json()
     cache[key] = aa
     return aa
 
@@ -370,6 +379,19 @@ def main() -> int:
         "Accept": "application/json",
         "Authorization": f"Bearer {token}",
     })
+    # Auto-retry on transient errors (connect/read timeouts, 5xx, 429) with
+    # exponential backoff: 1s, 2s, 4s. Prevents one slow API response from
+    # killing a long scan.
+    retry = Retry(
+        total=3,
+        backoff_factor=1.0,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
 
     start = normalize_dt(args.start, end_of_day=False)
     end = normalize_dt(args.end, end_of_day=True)
@@ -396,12 +418,8 @@ def main() -> int:
         if not parsed:
             continue
 
-        try:
-            aa = fetch_aa(session, api_base, domain,
-                          parsed["aa_user"], parsed["prompt_full"], aa_cache)
-        except requests.HTTPError as e:
-            print(f"warn: AA lookup failed for {parsed['prompt_full']}: {e}", file=sys.stderr)
-            continue
+        aa = fetch_aa(session, api_base, domain,
+                      parsed["aa_user"], parsed["prompt_full"], aa_cache)
 
         if aa is None:
             continue
